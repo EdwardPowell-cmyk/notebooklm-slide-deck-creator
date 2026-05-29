@@ -112,8 +112,19 @@ async def generate_presentation(file: UploadFile = File(...), theme_color: str =
 # --- THE ABSOLUTE SOLUTION: FORCE FASTAPI TO SERVE THE HTML ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    index_path = os.path.join(CURRENT_DIR, "index.html")
+    """
+    Guarantees Render can locate index.html dynamically by tracking
+    the exact absolute path of this active app.py file.
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    index_path = os.path.join(current_dir, "index.html")
+    
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
             return f.read()
-    raise HTTPException(status_code=404, detail="index.html not found in backend folder.")
+            
+    # This fallback ensures you see a readable message if path alignment is ever broken
+    raise HTTPException(
+        status_code=404, 
+        detail=f"Dashboard UI source file (index.html) could not be located at path: {index_path}"
+    )
