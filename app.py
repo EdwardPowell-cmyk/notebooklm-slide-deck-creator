@@ -119,11 +119,16 @@ async def generate_presentation(file: UploadFile = File(...), theme_color: str =
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
     """
-    Since files sit directly in the root repository folder,
-    we look for index.html directly in the working root directory.
+    Reads index.html with a fallback encoding handler ('utf-8-sig' and 'errors=ignore')
+    to prevent UnicodeDecodeError crashes on Render's Linux environment.
     """
     index_path = "index.html"
     if os.path.exists(index_path):
-        with open(index_path, "r", encoding="utf-8") as f:
-            return f.read()
+        try:
+            # 'utf-8-sig' automatically handles hidden Windows BOM markers like 0xff
+            with open(index_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+                return f.read()
+        except Exception as read_err:
+            raise HTTPException(status_code=500, detail=f"File read failure: {str(read_err)}")
+            
     raise HTTPException(status_code=404, detail="index.html file was not found in the root repository path.")
