@@ -29,7 +29,7 @@ app.mount("/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
 
 # --- FIXED LOGIC GAP: RESTORED API KEY CORNERSTONE SETTING ---
 # Looks for the secure cloud environment variable first, then uses your hardcoded backup key
-API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyCc45aIKZRV6I2pUl36B1pQzcxPEv5wg1Y")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 genai.configure(api_key=API_KEY)
 
 async def call_gemini_with_retry(gemini_file, prompt, max_retries=3):
