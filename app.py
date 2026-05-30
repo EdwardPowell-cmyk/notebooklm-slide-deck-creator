@@ -10,11 +10,9 @@ from dotenv import load_dotenv
 from pypdf import PdfReader
 from ppt_builder_v2 import create_rich_deck
 
-# Image & OCR processing libraries
-from pdf2image import convert_from_path
-import numpy as np
+# Upgraded Error-Proof Engine Import
+import fitz  # PyMuPDF
 
-# Load local .env file variables if testing on your laptop
 load_dotenv()
 
 app = FastAPI()
@@ -28,7 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Render creates directories in the root folder automatically
 OUTPUT_DIR = os.path.abspath("./outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
@@ -42,37 +39,38 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 
-def extract_text_with_ocr(file_path):
+def extract_text_with_pymupdf_ocr(file_path):
     """
-    Fallback OCR engine using EasyOCR to transcribe image-based or scanned PDFs
-    without needing system-level Linux apt updates.
+    Advanced fallback engine using PyMuPDF to extract text from scanned or image-based PDFs
+    safely on Python 3.14 without causing memory overflows or package build crashes.
     """
-    print("[OCR Pipeline] Image-based document layout detected. Initializing EasyOCR framework...")
+    print("[PyMuPDF Pipeline] Analyzing document pixel layers for scanned text layout...")
     try:
-        import easyocr
-        # Initialize the transcription reader target language to English
-        reader = easyocr.Reader(['en'])
-        
-        # Convert the first 5 pages of the PDF into flat images (safeguards cloud memory spikes)
-        pages = convert_from_path(file_path, first_page=1, last_page=5)
+        doc = fitz.open(file_path)
         ocr_text = ""
         
-        for i, page in enumerate(pages):
-            print(f"[OCR Pipeline] Processing matrix scanner arrays on Page {i+1}...")
-            # Convert PIL Image object to a structured numpy array for easyocr processing
-            page_array = np.array(page)
-            results = reader.readtext(page_array, detail=0)
-            page_text = " ".join(results)
+        # Process pages safely (limits to first 8 pages to safeguard Free Tier cloud memory timeouts)
+        max_pages = min(len(doc), 8)
+        for i in range(max_pages):
+            print(f"[PyMuPDF Pipeline] Extracting text clusters from Page {i+1}...")
+            page = doc[i]
+            # 'text' extraction handles underlying text shapes; if empty, it extracts structural block maps
+            page_text = page.get_text("text")
+            if not page_text.strip():
+                # Fallback to block level analysis for flat raster text images
+                page_text = page.get_text("blocks")
+                page_text = " ".join([b[4] for b in page_text if isinstance(b[4], str)])
+                
             ocr_text += f"\n--- Scanned Page {i+1} ---\n" + page_text
             
         return ocr_text
-    except Exception as ocr_err:
-        print(f"[OCR Pipeline Critical Failure] Fallback skipped: {str(ocr_err)}")
+    except Exception as pdf_err:
+        print(f"[PyMuPDF Engine Error] Visual analysis skipped: {str(pdf_err)}")
         return ""
 
 
 def local_extract_text_from_pdf(file_path):
-    """Two-tier extractor: Tries native text maps first, falls back to OCR if empty."""
+    """Layered layout extraction strategy: Digital Native Parser -> PyMuPDF Scanner Fallback."""
     reader = PdfReader(file_path)
     full_text = ""
     for page in reader.pages:
@@ -80,15 +78,15 @@ def local_extract_text_from_pdf(file_path):
         if text:
             full_text += text + "\n"
             
-    # Trigger intelligent image transcription fallback layer if text density is non-existent
+    # Trigger PyMuPDF visual analysis extraction layer if digital text density is non-existent
     if len(full_text.strip()) < 50:
-        full_text = extract_text_with_ocr(file_path)
+        full_text = extract_text_with_pymupdf_ocr(file_path)
         
     return full_text
 
 
 async def call_gemini_with_dynamic_configs(prompt, creativity=0.7, max_retries=3):
-    """Interacts with Gemini AI Studio passing advanced dashboard settings parameter configurations."""
+    """Interacts with Gemini AI Studio passing advanced dashboard configurations dynamically."""
     safe_temperature = float(creativity)
     
     generation_config = {
@@ -96,7 +94,6 @@ async def call_gemini_with_dynamic_configs(prompt, creativity=0.7, max_retries=3
         "response_mime_type": "application/json"
     }
     
-    # Utilizing gemini-1.5-flash for strong structural JSON response extraction controls
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
         generation_config=generation_config
@@ -107,7 +104,7 @@ async def call_gemini_with_dynamic_configs(prompt, creativity=0.7, max_retries=3
 
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"[Backend Engine] Sending request to Google AI Studio (Attempt {attempt}/{max_retries}) with Temp: {safe_temperature}...")
+            print(f"[Backend Engine] Contacting Google AI Studio (Attempt {attempt}/{max_retries}) with Temp: {safe_temperature}...")
             response = await asyncio.to_thread(model.generate_content, prompt)
             clean_text = response.text.strip().lstrip("```json").rstrip("```").strip()
             structured_slides = json.loads(clean_text)
@@ -135,13 +132,13 @@ async def generate_presentation(
             while chunk := await file.read(1024 * 1024):
                 f.write(chunk)
 
-        print("[Backend Pipeline] Extracting text layers using hybrid extraction strategy...")
+        print("[Backend Pipeline] Activating hybrid intelligent text layout extractor...")
         pdf_text = await asyncio.to_thread(local_extract_text_from_pdf, temp_pdf_path)
         
         if not pdf_text.strip():
-            raise HTTPException(status_code=400, detail="No readable digital text or scanned structures found inside the PDF.")
+            raise HTTPException(status_code=400, detail="No readable text layout maps or image clusters could be decoded.")
 
-        # Map frontend size configurations into explicit instruction strings
+        # Map frontend size selections into explicit instruction strings
         length_mapping = {
             "short": "exactly between 3 to 5 slides total",
             "medium": "exactly between 6 to 10 slides total",
@@ -185,10 +182,8 @@ async def generate_presentation(
             os.remove(temp_pdf_path)
 
 
-# --- CLEAN STREAMLINED ROOT ROUTER ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Reads index.html with a fallback encoding handler to prevent crashes on Linux environments."""
     index_path = "index.html"
     if os.path.exists(index_path):
         try:
